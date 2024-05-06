@@ -1,15 +1,14 @@
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/image_encodings.h>
-#include <sensor_msgs/distortion_models.h>
-#include <image_transport/image_transport.h>
-#include <camera_info_manager/camera_info_manager.h>
-#include <dynamic_reconfigure/server.h>
-#include <ocam/camConfig.h>
-#include <boost/thread.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/distortion_models.hpp>
+#include <image_transport/image_transport.hpp>
+#include <camera_info_manager/camera_info_manager.hpp>
+//#include <dynamic_reconfigure/server.h>
+// #include <ocam/camConfig.h>
 
 #include "withrobot_camera.hpp"
 
@@ -141,118 +140,109 @@ private:
     bool show_image_;
     bool config_changed_;
 
-    ros::NodeHandle nh;
     std::string camera_frame_id_;
     Camera* ocam;
-    /**
-     * @brief      { publish camera info }
-     *
-     * @param[in]  pub_cam_info  The pub camera information
-     * @param[in]  cam_info_msg  The camera information message
-     * @param[in]  now           The now
-     */
-    void publishCamInfo(const ros::Publisher& pub_cam_info, sensor_msgs::CameraInfo& cam_info_msg, ros::Time now) {
-        cam_info_msg.header.stamp = now;
-        pub_cam_info.publish(cam_info_msg);
-    }
 
-    /**
-     * @brief      { publish image }
-     *
-     * @param[in]  img           The image
-     * @param      img_pub       The image pub
-     * @param[in]  img_frame_id  The image frame identifier
-     * @param[in]  t             { parameter_description }
-     */
-    void publishImage(cv::Mat img, image_transport::Publisher &img_pub, std::string img_frame_id, ros::Time t) {
-        cv_bridge::CvImage cv_image;
-        cv_image.image = img;
-        cv_image.encoding = sensor_msgs::image_encodings::BGR8;
-        cv_image.header.frame_id = img_frame_id;
-        cv_image.header.stamp = t;
-        img_pub.publish(cv_image.toImageMsg());
-    }
+    rclcpp::Node::SharedPtr node;
+    std::shared_ptr<image_transport::ImageTransport> img_transport;
+    image_transport::Publisher img_pub;
+    std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::CameraInfo>> cam_info_pub;
+    // image_transport::CameraPublisher camera_image_pub;
 
+public:
     void device_poll() {
-        //Reconfigure confidence
-        dynamic_reconfigure::Server<ocam::camConfig> server;
-        dynamic_reconfigure::Server<ocam::camConfig>::CallbackType f;
-        f = boost::bind(&oCamROS::callback, this ,_1, _2);
-        server.setCallback(f);
+//         //Reconfigure confidence
+//         dynamic_reconfigure::Server<ocam::camConfig> server;
+//         dynamic_reconfigure::Server<ocam::camConfig>::CallbackType f;
+//         f = boost::bind(&oCamROS::callback, this ,_1, _2);
+//         server.setCallback(f);
 
-        // setup publisher stuff
-        image_transport::ImageTransport it(nh);
-        image_transport::Publisher camera_image_pub = it.advertise("camera/image_raw", 1);
+//         // setup publisher stuff
+//         image_transport::ImageTransport it(nh);
+//         image_transport::Publisher camera_image_pub = it.advertise("camera/image_raw", 1);
 
-        ros::Publisher camera_info_pub = nh.advertise<sensor_msgs::CameraInfo>("camera/camera_info", 1);
+//         ros::Publisher camera_info_pub = nh.advertise<sensor_msgs::CameraInfo>("camera/camera_info", 1);
 
-        sensor_msgs::CameraInfo camera_info;
+        sensor_msgs::msg::CameraInfo camera_info;
+        RCLCPP_INFO(node->get_logger(),"Loading from ROS calibration files");
 
-        ROS_INFO("Loading from ROS calibration files");
 
+//         // get config from the left, right.yaml in config
+        // camera_info_manager::CameraInfoManager info_manager(node.get());
+        // info_manager.setCameraName("ocam");
+        // info_manager.loadCameraInfo( "package://ocam/config/camera.yaml");
+        // camera_info = info_manager.getCameraInfo();
 
-        // get config from the left, right.yaml in config
-        camera_info_manager::CameraInfoManager info_manager(nh);
+        // camera_info.header.frame_id = camera_frame_id_;
 
-        info_manager.setCameraName("camera");
-        info_manager.loadCameraInfo( "package://ocam/config/camera.yaml");
-        camera_info = info_manager.getCameraInfo();
-
-        camera_info.header.frame_id = camera_frame_id_;
-
-        ROS_INFO("Got camera calibration files");
+        RCLCPP_INFO(node->get_logger(), "Got camera calibration files");
 
         // loop to publish images;
         cv::Mat camera_image;
+        rclcpp::Rate r(frame_rate_);
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
 
-        ros::Rate r(frame_rate_);
-
-        while (ros::ok())
+        while (rclcpp::ok())
         {
-            ros::Time now = ros::Time::now();
+            auto now = node->get_clock()->now();
 
             if (!ocam->getImages(camera_image)) {
                 usleep(1000);
                 continue;
             } else {
-                ROS_INFO_ONCE("Success, found camera");
+                RCLCPP_INFO_ONCE(node->get_logger(), "Success, found camera");
             }
 
-            if (camera_image_pub.getNumSubscribers() > 0) {
-                publishImage(camera_image, camera_image_pub, "camera_frame", now);
+            // if (camera_image_pub.getNumSubscribers() > 0) {
+            //     std_msgs::msg::Header hdr;
+            //     sensor_msgs::msg::Image::SharedPtr img_msg = cv_bridge::CvImage(hdr, "bgr8", camera_image).toImageMsg();
+            //     // img_msg->header.stamp = now;
+            //     // img_msg->header.frame_id = camera_frame_id_;
+            //     camera_info.header.stamp = now;
+            //     camera_image_pub.publish(img_msg, camera_info, now);
+            // }
+            if (img_pub.getNumSubscribers() >0)
+            {
+                std_msgs::msg::Header hdr;
+                sensor_msgs::msg::Image::SharedPtr img_msg = cv_bridge::CvImage(hdr, "bgr8", camera_image).toImageMsg();
+                img_msg->header.stamp = now;
+                img_msg->header.frame_id = camera_frame_id_;
+                img_pub.publish(img_msg);
             }
-
-            if (camera_info_pub.getNumSubscribers() > 0) {
-                publishCamInfo(camera_info_pub, camera_info, now);
-            }
-
+            //
+            // if (cam_info_pub->get_subscription_count() > 0)
+            // {
+            //     camera_info.header.stamp = now;
+            //     camera_info.header.frame_id = camera_frame_id_;
+            //     cam_info_pub->publish(camera_info);
+            // }
 
             if (show_image_) {
                 cv::imshow("image", camera_image);
                 cv::waitKey(10);
             }
-
+            //
+            executor.spin_some();
             r.sleep();
         }
     }
 
-    void callback(ocam::camConfig &config, uint32_t level) {
-        ocam->uvc_control(config.exposure, config.gain, config.wb_blue, config.wb_red, config.auto_exposure);
-    }
+//     void callback(ocam::camConfig &config, uint32_t level) {
+//         ocam->uvc_control(config.exposure, config.gain, config.wb_blue, config.wb_red, config.auto_exposure);
+    // }
 
-
-public:
     /**
 	 * @brief      { function_description }
 	 *
 	 * @param[in]  resolution  The resolution
 	 * @param[in]  frame_rate  The frame rate
      */
-    oCamROS() {
-        ros::NodeHandle priv_nh("~");
+    oCamROS(){
 
+        node = rclcpp::Node::make_shared("ocam_node", rclcpp::NodeOptions());
         /* default parameters */
-        resolution_ = 2;
+        resolution_ = 1;
         frame_rate_ = 30.0;
         exposure_ = 100;
         gain_ = 150;
@@ -260,27 +250,28 @@ public:
         wb_red_ = 160;
         autoexposure_= false;
         camera_frame_id_ = "camera";
-        show_image_ = true;
+        show_image_ = false;
 
         /* get parameters */
-        priv_nh.getParam("resolution", resolution_);
-        priv_nh.getParam("frame_rate", frame_rate_);
-        priv_nh.getParam("exposure", exposure_);
-        priv_nh.getParam("gain", gain_);
-        priv_nh.getParam("wb_blue", wb_blue_);
-        priv_nh.getParam("wb_red", wb_red_);
-        priv_nh.getParam("camera_frame_id", camera_frame_id_);
-        priv_nh.getParam("show_image", show_image_);
-        priv_nh.getParam("auto_exposure", autoexposure_);
+        // priv_nh.getParam("resolution", resolution_);
+        // priv_nh.getParam("frame_rate", frame_rate_);
+        // priv_nh.getParam("exposure", exposure_);
+        // priv_nh.getParam("gain", gain_);
+        // priv_nh.getParam("wb_blue", wb_blue_);
+        // priv_nh.getParam("wb_red", wb_red_);
+        // priv_nh.getParam("camera_frame_id", camera_frame_id_);
+        // priv_nh.getParam("show_image", show_image_);
+        // priv_nh.getParam("auto_exposure", autoexposure_);
 
         /* initialize the camera */
         ocam = new Camera(resolution_, frame_rate_);
         ocam->uvc_control(exposure_, gain_, wb_blue_, wb_red_, autoexposure_);
-        ROS_INFO("Initialized the camera");
+        RCLCPP_INFO(node->get_logger(), "Initialized the camera");
 
-        // thread
-        boost::shared_ptr<boost::thread> device_poll_thread;
-        device_poll_thread = boost::shared_ptr<boost::thread>(new boost::thread(&oCamROS::device_poll, this));
+        img_transport = std::make_shared<image_transport::ImageTransport>(node);
+        // camera_image_pub = img_transport->advertiseCamera("ocam", 10);
+        img_pub = img_transport->advertise("image", 30);
+        cam_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", rclcpp::SensorDataQoS());
 	}
 
     ~oCamROS() {
@@ -290,15 +281,9 @@ public:
 
 int main (int argc, char **argv)
 {
-    ros::init(argc, argv, "ocam");
-
-    ros::NodeHandle nh;
-    ros::NodeHandle priv_nh("~");
-
-    oCamROS ocam_ros;
-
-    ros::spin();
-
+    rclcpp::init(argc, argv);
+    oCamROS ocam;
+    ocam.device_poll();
+    rclcpp::shutdown();
     return 0;
 }
-
