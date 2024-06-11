@@ -7,8 +7,8 @@
 #include <sensor_msgs/distortion_models.hpp>
 #include <image_transport/image_transport.hpp>
 #include <camera_info_manager/camera_info_manager.hpp>
-//#include <dynamic_reconfigure/server.h>
-// #include <ocam/camConfig.h>
+#include <rcl_interfaces/msg/parameter_descriptor.hpp>
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 
 #include "withrobot_camera.hpp"
 
@@ -148,32 +148,59 @@ private:
     image_transport::Publisher img_pub;
     std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::CameraInfo>> cam_info_pub;
     // image_transport::CameraPublisher camera_image_pub;
+    rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr param_cb_;
 
 public:
+
+    rcl_interfaces::msg::SetParametersResult param_callback(const std::vector<rclcpp::Parameter>& msg)
+    {
+        bool config_updated = false;
+        for(const auto param : msg)
+        {
+            if(param.get_name() == "exposure")
+                exposure_ = param.as_int();
+            else if(param.get_name() == "gain")
+                gain_ = param.as_int();
+            else if(param.get_name() == "wb_blue")
+                wb_blue_ = param.as_int();
+            else if(param.get_name() == "wb_red")
+                wb_red_ = param.as_int();
+            else if(param.get_name() == "auto_exposure")
+                autoexposure_ = param.as_bool();
+        }
+        if(config_updated)
+        {
+            RCLCPP_INFO(node->get_logger(), "Config update: expsoure:[%d], gain:[%d] wb_blue:[%d] wb_red:[%d] auto exposure:[%d]",
+                exposure_, gain_, wb_blue_, wb_red_, autoexposure_);
+            ocam->uvc_control(exposure_, gain_, wb_blue_, wb_red_, autoexposure_);
+        }
+
+        rcl_interfaces::msg::SetParametersResult result;
+        result.set__successful(true);
+        result.set__reason("");
+        return result;
+    }
+
     void device_poll() {
-//         //Reconfigure confidence
-//         dynamic_reconfigure::Server<ocam::camConfig> server;
-//         dynamic_reconfigure::Server<ocam::camConfig>::CallbackType f;
-//         f = boost::bind(&oCamROS::callback, this ,_1, _2);
-//         server.setCallback(f);
-
-//         // setup publisher stuff
-//         image_transport::ImageTransport it(nh);
-//         image_transport::Publisher camera_image_pub = it.advertise("camera/image_raw", 1);
-
-//         ros::Publisher camera_info_pub = nh.advertise<sensor_msgs::CameraInfo>("camera/camera_info", 1);
 
         sensor_msgs::msg::CameraInfo camera_info;
         RCLCPP_INFO(node->get_logger(),"Loading from ROS calibration files");
 
 
-//         // get config from the left, right.yaml in config
-        // camera_info_manager::CameraInfoManager info_manager(node.get());
-        // info_manager.setCameraName("ocam");
-        // info_manager.loadCameraInfo( "package://ocam/config/camera.yaml");
-        // camera_info = info_manager.getCameraInfo();
-
-        // camera_info.header.frame_id = camera_frame_id_;
+        try
+        {
+            // get config from the left, right.yaml in config
+            camera_info_manager::CameraInfoManager info_manager(node.get());
+            info_manager.setCameraName("ocam");
+            info_manager.loadCameraInfo( "package://ocam/config/camera.yaml");
+            camera_info = info_manager.getCameraInfo();
+            camera_info.header.frame_id = camera_frame_id_;            
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
+        }
+        
 
         RCLCPP_INFO(node->get_logger(), "Got camera calibration files");
 
@@ -202,6 +229,7 @@ public:
             //     camera_info.header.stamp = now;
             //     camera_image_pub.publish(img_msg, camera_info, now);
             // }
+    
             if (img_pub.getNumSubscribers() >0)
             {
                 std_msgs::msg::Header hdr;
@@ -211,12 +239,12 @@ public:
                 img_pub.publish(img_msg);
             }
             //
-            // if (cam_info_pub->get_subscription_count() > 0)
-            // {
-            //     camera_info.header.stamp = now;
-            //     camera_info.header.frame_id = camera_frame_id_;
-            //     cam_info_pub->publish(camera_info);
-            // }
+            if (cam_info_pub->get_subscription_count() > 0)
+            {
+                camera_info.header.stamp = now;
+                camera_info.header.frame_id = camera_frame_id_;
+                cam_info_pub->publish(camera_info);
+            }
 
             if (show_image_) {
                 cv::imshow("image", camera_image);
@@ -228,10 +256,6 @@ public:
         }
     }
 
-//     void callback(ocam::camConfig &config, uint32_t level) {
-//         ocam->uvc_control(config.exposure, config.gain, config.wb_blue, config.wb_red, config.auto_exposure);
-    // }
-
     /**
 	 * @brief      { function_description }
 	 *
@@ -242,26 +266,60 @@ public:
 
         node = rclcpp::Node::make_shared("ocam_node", rclcpp::NodeOptions());
         /* default parameters */
-        resolution_ = 1;
-        frame_rate_ = 30.0;
-        exposure_ = 100;
-        gain_ = 150;
-        wb_blue_ = 200;
-        wb_red_ = 160;
-        autoexposure_= false;
-        camera_frame_id_ = "camera";
-        show_image_ = false;
+        // frame_rate_ = 30.0;
+        // exposure_ = 100;
+        // gain_ = 150;
+        // wb_blue_ = 200;
+        // wb_red_ = 160;
+        // autoexposure_= false;
+        // camera_frame_id_ = "camera";
+        // show_image_ = false;
 
-        /* get parameters */
-        // priv_nh.getParam("resolution", resolution_);
-        // priv_nh.getParam("frame_rate", frame_rate_);
-        // priv_nh.getParam("exposure", exposure_);
-        // priv_nh.getParam("gain", gain_);
-        // priv_nh.getParam("wb_blue", wb_blue_);
-        // priv_nh.getParam("wb_red", wb_red_);
-        // priv_nh.getParam("camera_frame_id", camera_frame_id_);
-        // priv_nh.getParam("show_image", show_image_);
-        // priv_nh.getParam("auto_exposure", autoexposure_);
+        node->declare_parameter("resolution", 1);
+        node->declare_parameter("frame_rate", 30.0);
+        node->declare_parameter("camera_frame_id", "camera");
+        node->declare_parameter("show_image", false);
+
+        rcl_interfaces::msg::ParameterDescriptor descriptor;
+        rcl_interfaces::msg::IntegerRange range;
+
+        range.set__from_value(100).set__to_value(625).set__step(1);
+        descriptor.integer_range = {range};
+        descriptor.description = "Exposure parameter";
+        node->declare_parameter("exposure", 100, descriptor);
+
+        range.set__from_value(32).set__to_value(255).set__step(0);
+        descriptor.integer_range = {range};
+        descriptor.description = "Gain parameter";
+        node->declare_parameter("gain", 150, descriptor);
+
+        range.set__from_value(200).set__to_value(250).set__step(0);
+        descriptor.integer_range = {range};
+        descriptor.description = "Whitebalance blue parameter";
+        node->declare_parameter("wb_blue", 200, descriptor);
+
+        range.set__from_value(150).set__to_value(250).set__step(0);
+        descriptor.integer_range = {range};
+        descriptor.description = "Whitebalance red parameter";
+        node->declare_parameter("wb_red", 160, descriptor);
+    
+        range.set__from_value(0).set__to_value(1).set__step(1);
+        descriptor.integer_range = {range};
+        descriptor.description = "Autoexposure parameter";
+        node->declare_parameter("auto_exposure", false, descriptor);
+    
+        param_cb_ = node->add_on_set_parameters_callback(std::bind(&oCamROS::param_callback, this, std::placeholders::_1));
+
+        node->get_parameter<int>("resolution", resolution_);
+        node->get_parameter<double>("frame_rate", frame_rate_);
+        node->get_parameter<int>("exposure", exposure_);
+        node->get_parameter<int>("gain", gain_);
+        node->get_parameter<int>("wb_blue", wb_blue_);
+        node->get_parameter<int>("wb_red", wb_red_);
+        node->get_parameter<std::string>("camera_frame_id", camera_frame_id_);
+        node->get_parameter<bool>("show_image", show_image_);
+        node->get_parameter<bool>("auto_exposure", autoexposure_);
+
 
         /* initialize the camera */
         ocam = new Camera(resolution_, frame_rate_);
