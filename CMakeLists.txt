@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 project(ocam)
 
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS "-std=c++14")
+set(CMAKE_CXX_FLAGS "-std=c++17")
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -Wall -g")
 #set(CMAKE_CXX_FLAGS "-std=c++11 -O2 ${CMAKE_CXX_FLAGS}")
 if(NOT CMAKE_CXX_STANDARD)
